@@ -6,6 +6,9 @@ const { Server } = require('socket.io');
 const connectDB = require('./config/database');
 const { protect } = require('./middleware/auth');
 const envConfig = require('./config/environment');
+const path = require('path');
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -21,7 +24,7 @@ const io = new Server(server, {
   cors: {
     origin: envConfig.corsOrigins,
     methods: ["GET", "POST"],
-    credentials: false
+    credentials: true
   }
 });
 
@@ -34,10 +37,13 @@ connectDB();
 // Trust proxy (important for deployment)
 app.set('trust proxy', 1);
 
+const openapiDocument = YAML.load(path.join(__dirname, 'docs', 'openapi.yaml'));
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDocument));
+
 // Middleware
 app.use(cors({
   origin: envConfig.corsOrigins,
-  credentials: false
+  credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

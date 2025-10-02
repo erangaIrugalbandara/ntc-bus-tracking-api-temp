@@ -1,0 +1,801 @@
+openapi: 3.0.3
+info:
+  title: NTC Bus Tracking API
+  version: "1.0.0"
+  description: |
+    REST API for NTC Bus Tracking with Socket.io-based real-time subscriptions.
+
+    Real-time (Socket.io):
+    - Clients connect via WebSocket and join rooms to receive targeted updates:
+      - subscribe-bus: joins room "bus-{busNumber}"
+      - subscribe-all-buses: joins room "all-buses"
+      - subscribe-route: joins room "route-{routeId}"
+    - See x-socketio extension for details.
+
+servers:
+  - url: http://localhost:{port}
+    description: Local development
+    variables:
+      port:
+        default: "3000"
+  - url: https://api.example.com
+    description: Production
+
+tags:
+  - name: Health
+    description: Health and service status
+  - name: Auth
+    description: Authentication endpoints
+  - name: Public
+    description: Publicly accessible endpoints
+  - name: Admin
+    description: Administrative endpoints (protected)
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns service status and environment information.
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      description: Authenticates a user and returns a token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            examples:
+              sample:
+                value:
+                  email: "user@example.com"
+                  password: "yourStrongPassword"
+      responses:
+        "200":
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: Bad request (validation or missing fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized (invalid credentials)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Public routes
+  /api/public/routes:
+    get:
+      tags: [Public]
+      summary: List public routes
+      responses:
+        "200":
+          description: List of routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Route"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/public/routes/{id}:
+    get:
+      tags: [Public]
+      summary: Get a route by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Route details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "404":
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/public/trips/active:
+    get:
+      tags: [Public]
+      summary: List active trips
+      responses:
+        "200":
+          description: Active trips
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trip"
+
+  /api/public/trips/upcoming/{routeId}:
+    get:
+      tags: [Public]
+      summary: List upcoming trips for a route
+      parameters:
+        - in: path
+          name: routeId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Upcoming trips for the route
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trip"
+        "404":
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/public/trips/{id}:
+    get:
+      tags: [Public]
+      summary: Get a trip by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Trip details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+        "404":
+          description: Trip not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/public/buses/{busId}/location:
+    get:
+      tags: [Public]
+      summary: Get current bus location
+      parameters:
+        - in: path
+          name: busId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Latest location for the bus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Location"
+        "404":
+          description: Bus/location not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/public/buses/{busId}/location/history:
+    get:
+      tags: [Public]
+      summary: Get bus location history
+      parameters:
+        - in: path
+          name: busId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Historical locations for the bus
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Location"
+        "404":
+          description: Bus/location not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/public/buses/nearby:
+    get:
+      tags: [Public]
+      summary: Find buses nearby a coordinate
+      parameters:
+        - in: query
+          name: lat
+          schema: { type: number }
+          description: Latitude
+        - in: query
+          name: lng
+          schema: { type: number }
+          description: Longitude
+        - in: query
+          name: radius
+          schema: { type: number, default: 1000 }
+          description: Search radius in meters
+      responses:
+        "200":
+          description: Nearby buses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bus"
+
+  /api/public/locations/active:
+    get:
+      tags: [Public]
+      summary: List all active locations
+      responses:
+        "200":
+          description: Active locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Location"
+
+  # Admin routes (JWT-protected)
+  /api/admin/dashboard:
+    get:
+      tags: [Admin]
+      summary: Admin dashboard summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/buses:
+    get:
+      tags: [Admin]
+      summary: List buses
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of buses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bus"
+    post:
+      tags: [Admin]
+      summary: Create a bus
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BusCreate"
+      responses:
+        "201":
+          description: Created bus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bus"
+
+  /api/admin/buses/{id}:
+    get:
+      tags: [Admin]
+      summary: Get a bus by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Bus details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bus"
+        "404":
+          description: Bus not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Admin]
+      summary: Update a bus by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BusUpdate"
+      responses:
+        "200":
+          description: Updated bus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bus"
+    delete:
+      tags: [Admin]
+      summary: Delete a bus by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+
+  /api/admin/routes:
+    get:
+      tags: [Admin]
+      summary: List routes
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Route"
+    post:
+      tags: [Admin]
+      summary: Create a route
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteCreate"
+      responses:
+        "201":
+          description: Created route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+
+  /api/admin/routes/{id}:
+    get:
+      tags: [Admin]
+      summary: Get a route by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Route details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "404":
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Admin]
+      summary: Update a route by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteUpdate"
+      responses:
+        "200":
+          description: Updated route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+    delete:
+      tags: [Admin]
+      summary: Delete a route by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+
+  /api/admin/trips:
+    get:
+      tags: [Admin]
+      summary: List trips
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of trips
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trip"
+    post:
+      tags: [Admin]
+      summary: Create a trip
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripCreate"
+      responses:
+        "201":
+          description: Created trip
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+
+  /api/admin/trips/{id}:
+    get:
+      tags: [Admin]
+      summary: Get a trip by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Trip details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+        "404":
+          description: Trip not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      tags: [Admin]
+      summary: Update a trip by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripUpdate"
+      responses:
+        "200":
+          description: Updated trip
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+    delete:
+      tags: [Admin]
+      summary: Delete a trip by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+
+  /api/admin/locations:
+    post:
+      tags: [Admin]
+      summary: Create a location (e.g., GPS simulator)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationCreate"
+      responses:
+        "201":
+          description: Created location
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Location"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        status: { type: string, example: error }
+        message: { type: string, example: Internal server error }
+      required: [status, message]
+
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string, example: success }
+        message: { type: string, example: NTC Bus Tracking API is running }
+        timestamp: { type: string, format: date-time }
+        environment: { type: string, example: development }
+        websocket: { type: string, example: enabled }
+      required: [status, message, timestamp, environment, websocket]
+
+    LoginRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 6 }
+      required: [email, password]
+
+    User:
+      type: object
+      properties:
+        id: { type: string, example: "64f23b1a7c6f4e12a0c12345" }
+        name: { type: string, example: Jane Doe }
+        email: { type: string, format: email }
+        role: { type: string, example: admin }
+
+    LoginResponse:
+      type: object
+      properties:
+        status: { type: string, example: success }
+        token: { type: string, description: JWT token }
+        user: { $ref: "#/components/schemas/User" }
+      required: [status, token, user]
+
+    Bus:
+      type: object
+      description: Generic bus shape (adjust to your model)
+      properties:
+        id: { type: string }
+        number: { type: string, example: "123" }
+        plateNumber: { type: string, example: "ABC-1234" }
+        capacity: { type: integer, example: 50 }
+        status: { type: string, example: active }
+
+    BusCreate:
+      type: object
+      description: Fields to create a bus (adjust to your model)
+      additionalProperties: true
+
+    BusUpdate:
+      type: object
+      description: Fields to update a bus (partial)
+      additionalProperties: true
+
+    Route:
+      type: object
+      description: Generic route shape (adjust to your model)
+      properties:
+        id: { type: string }
+        name: { type: string, example: "A1" }
+        origin: { type: string, example: "City Center" }
+        destination: { type: string, example: "Airport" }
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/Stop"
+
+    RouteCreate:
+      type: object
+      additionalProperties: true
+
+    RouteUpdate:
+      type: object
+      additionalProperties: true
+
+    Stop:
+      type: object
+      properties:
+        name: { type: string }
+        lat: { type: number, format: float }
+        lng: { type: number, format: float }
+
+    Trip:
+      type: object
+      description: Generic trip shape (adjust to your model)
+      properties:
+        id: { type: string }
+        routeId: { type: string }
+        busId: { type: string }
+        departureTime: { type: string, format: date-time }
+        arrivalTime: { type: string, format: date-time }
+        status: { type: string, example: active }
+
+    TripCreate:
+      type: object
+      additionalProperties: true
+
+    TripUpdate:
+      type: object
+      additionalProperties: true
+
+    Location:
+      type: object
+      description: Bus location reading
+      properties:
+        id: { type: string }
+        busId: { type: string }
+        lat: { type: number, format: float }
+        lng: { type: number, format: float }
+        speed: { type: number, format: float, example: 35.5 }
+        heading: { type: number, format: float, example: 180 }
+        timestamp: { type: string, format: date-time }
+
+    LocationCreate:
+      type: object
+      additionalProperties: true
+
+    Dashboard:
+      type: object
+      description: Dashboard summary (adjust to your model)
+      additionalProperties: true
+
+    DeleteResponse:
+      type: object
+      properties:
+        status: { type: string, example: success }
+        message: { type: string, example: Resource deleted }
+
+x-socketio:
+  description: Socket.io events available after establishing a WebSocket connection.
+  transport: socket.io
+  events:
+    subscribe-bus:
+      description: Subscribe to updates for a specific bus.
+      payload:
+        type: object
+        properties:
+          busNumber:
+            type: string
+            description: Bus number to subscribe to.
+            example: "123"
+        required: [busNumber]
+      joinsRoom: bus-{busNumber}
+    subscribe-all-buses:
+      description: Subscribe to updates for all buses.
+      payload:
+        type: "null"
+      joinsRoom: all-buses
+    subscribe-route:
+      description: Subscribe to updates for a specific route.
+      payload:
+        type: object
+        properties:
+          routeId:
+            type: string
+            description: Route identifier to subscribe to.
+            example: "A1"
+        required: [routeId]
+      joinsRoom: route-{routeId}
