@@ -1,0 +1,32 @@
+{
+  "name": "ntc-bus-tracking-api",
+  "version": "1.0.0",
+  "description": "NTC Bus Tracking REST API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development nodemon server.js",
+    "prod": "NODE_ENV=production node server.js",
+    "seed": "node seeders/seed.js",
+    "seed:prod": "NODE_ENV=production node seeders/seed.js"
+  },
+  "keywords": [
+    "ntc",
+    "bus-tracking",
+    "rest-api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^8.0.3",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "socket.io": "^4.6.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
