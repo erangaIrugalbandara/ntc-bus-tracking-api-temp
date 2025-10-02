@@ -1,10 +1,10 @@
-require('dotenv').config();
+require('dotenv').config({ path: '.env.production' });
 const mongoose = require('mongoose');
 const Bus = require('./models/Bus');
 const Route = require('./models/Route');
 const Trip = require('./models/Trip');
 
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ntc-bus-tracking')
+mongoose.connect(process.env.MONGODB_URI)
   .then(createTrips)
   .catch(err => {
     console.error('Connection failed:', err);

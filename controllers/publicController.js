@@ -392,7 +392,13 @@ exports.getActiveLocations = async (req, res) => {
       {
         $group: {
           _id: '$bus',
-          latestLocation: { $first: '$ROOT' }
+          latestLocation: { $first: '$$ROOT' }
+        }
+      },
+      // FIX: Filter out null locations BEFORE replaceRoot
+      {
+        $match: {
+          latestLocation: { $ne: null }
         }
       },
       {
