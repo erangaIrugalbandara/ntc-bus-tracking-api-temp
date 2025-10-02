@@ -3,8 +3,8 @@ const Admin = require('../models/Admin');
 
 // Generate JWT token
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE
+  return jwt.sign({ id }, process.env.JWT_SECRET || 'your-secret-key-change-in-production', {
+    expiresIn: process.env.JWT_EXPIRE || '30d'
   });
 };
 
@@ -22,8 +22,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check if admin exists
-    const admin = await Admin.findOne({ username });
+    // Check if admin exists (need to explicitly select password)
+    const admin = await Admin.findOne({ username }).select('+password');
+    
     if (!admin) {
       return res.status(401).json({
         status: 'error',
@@ -31,8 +32,17 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Check if admin is active
+    if (admin.status === 'inactive') {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Account is inactive'
+      });
+    }
+
     // Check password
     const isPasswordCorrect = await admin.comparePassword(password);
+    
     if (!isPasswordCorrect) {
       return res.status(401).json({
         status: 'error',
@@ -47,13 +57,16 @@ exports.login = async (req, res) => {
       status: 'success',
       data: {
         token,
-        admin: {
+        user: {
           id: admin._id,
-          username: admin.username
+          username: admin.username,
+          name: admin.name,
+          role: admin.role
         }
       }
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({
       status: 'error',
       message: error.message

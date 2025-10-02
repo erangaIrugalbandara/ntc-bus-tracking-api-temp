@@ -22,7 +22,7 @@ const server = http.createServer(app);
 // Initialize Socket.io with CORS
 const io = new Server(server, {
   cors: {
-    origin: envConfig.corsOrigins,
+    origin: '*',
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -37,16 +37,29 @@ connectDB();
 // Trust proxy (important for deployment)
 app.set('trust proxy', 1);
 
-const openapiDocument = YAML.load(path.join(__dirname, 'docs', 'openapi.yaml'));
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDocument));
-
-// Middleware
+// CRITICAL: CORS Configuration - MUST be before routes
 app.use(cors({
-  origin: envConfig.corsOrigins,
-  credentials: true
+  origin: '*', // Allow all origins
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Handle preflight requests
+app.options('*', cors());
+
+// Body parser middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Swagger documentation
+const openapiPath = path.join(__dirname, 'docs', 'openapi.yaml');
+try {
+  const openapiDocument = YAML.load(openapiPath);
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDocument));
+} catch (error) {
+  console.log('Swagger docs not available');
+}
 
 // Request logger middleware (only in development)
 if (process.env.NODE_ENV === 'development') {
@@ -90,7 +103,8 @@ app.get('/health', (req, res) => {
     message: 'NTC Bus Tracking API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    websocket: 'enabled'
+    websocket: 'enabled',
+    cors: 'enabled'
   });
 });
 
@@ -119,10 +133,31 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-const PORT = envConfig.port;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`WebSocket server running`);
-  console.log(`API Base URL: ${envConfig.apiBaseUrl}`);
+  console.log(`✓ Server running on port ${PORT}`);
+  console.log(`✓ Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`✓ WebSocket server running`);
+  console.log(`✓ CORS enabled for all origins`);
+  console.log(`✓ API: http://localhost:${PORT}`);
+  console.log(`✓ Health: http://localhost:${PORT}/health`);
+});
+
+// Handle server errors
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`✗ Port ${PORT} is already in use`);
+    process.exit(1);
+  } else {
+    console.error('✗ Server error:', error);
+  }
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\nShutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
