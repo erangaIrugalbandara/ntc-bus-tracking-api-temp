@@ -455,92 +455,91 @@ exports.deleteTrip = async (req, res) => {
   }
 };
 
-// Create location (GPS simulator posts here)
+// Create location
 // POST /api/admin/locations
 exports.createLocation = async (req, res) => {
   try {
+    const { busId, latitude, longitude, speed, heading, timestamp } = req.body;
+
+    // Validate required fields
+    if (!busId || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Missing required fields: busId, latitude, longitude'
+      });
+    }
+
     // Find active trip for this bus
     const activeTrip = await Trip.findOne({
-      bus: req.body.busId,
+      bus: busId,
       status: 'in_progress'
     });
 
+    if (!activeTrip) {
+      return res.status(400).json({
+        status: 'error',
+        message: `No active trip found for bus ${busId}`
+      });
+    }
+
     const locationData = {
-      bus: req.body.busId,
-      trip: activeTrip ? activeTrip._id : null,
-      latitude: req.body.latitude,
-      longitude: req.body.longitude,
-      speed: req.body.speed,
-      heading: req.body.heading,
-      timestamp: req.body.timestamp || new Date()
+      bus: busId,
+      trip: activeTrip._id,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      speed: parseFloat(speed) || 0,
+      heading: parseFloat(heading) || 0,
+      timestamp: timestamp || new Date()
     };
 
     const location = await Location.create(locationData);
 
     // Populate bus and trip details for WebSocket
     await location.populate('bus', 'busNumber registrationNumber serviceType operator');
-    if (location.trip) {
-      await location.populate({
-        path: 'trip',
-        select: 'tripNumber route direction',
-        populate: {
-          path: 'route',
-          select: 'routeNumber name origin destination'
-        }
-      });
-    }
+    await location.populate({
+      path: 'trip',
+      select: 'tripNumber route direction status',
+      populate: {
+        path: 'route',
+        select: 'routeNumber name origin destination'
+      }
+    });
+
+    // Format for WebSocket broadcast
+    const broadcastData = {
+      bus: location.bus,
+      location: {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        speed: location.speed,
+        heading: location.heading,
+        timestamp: location.timestamp
+      },
+      trip: location.trip
+    };
 
     // Emit real-time update via WebSocket
     const io = req.app.get('io');
     
     // Broadcast to specific bus subscribers
-    io.to(`bus-${location.bus.busNumber}`).emit('location-update', {
-      bus: location.bus,
-      location: {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        speed: location.speed,
-        heading: location.heading,
-        timestamp: location.timestamp
-      },
-      trip: location.trip
-    });
+    io.to(`bus-${location.bus.busNumber}`).emit('location-update', broadcastData);
 
     // Broadcast to all buses subscribers
-    io.to('all-buses').emit('location-update', {
-      bus: location.bus,
-      location: {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        speed: location.speed,
-        heading: location.heading,
-        timestamp: location.timestamp
-      },
-      trip: location.trip
-    });
+    io.to('all-buses').emit('location-update', broadcastData);
 
-    // Broadcast to route subscribers if trip exists
+    // Broadcast to route subscribers
     if (location.trip && location.trip.route) {
-      io.to(`route-${location.trip.route._id}`).emit('location-update', {
-        bus: location.bus,
-        location: {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          speed: location.speed,
-          heading: location.heading,
-          timestamp: location.timestamp
-        },
-        trip: location.trip
-      });
+      io.to(`route-${location.trip.route._id}`).emit('location-update', broadcastData);
     }
 
     res.status(201).json({
       status: 'success',
       data: {
-        location
+        location: broadcastData
       }
     });
   } catch (error) {
+    console.error('Error creating location:', error);
     res.status(400).json({
       status: 'error',
       message: error.message

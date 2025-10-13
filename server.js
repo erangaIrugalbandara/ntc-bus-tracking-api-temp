@@ -51,14 +51,18 @@ app.options('*', cors());
 // Body parser middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+ 
 // Swagger documentation
 const openapiPath = path.join(__dirname, 'docs', 'openapi.yaml');
 try {
+  console.log('Loading Swagger docs from:', openapiPath);
   const openapiDocument = YAML.load(openapiPath);
+  console.log('✓ Swagger docs loaded successfully');
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiDocument));
+  console.log('✓ Swagger UI configured at /docs');
 } catch (error) {
-  console.log('Swagger docs not available');
+  console.error('✗ Failed to load Swagger docs:', error.message);
+  console.error('✗ Path attempted:', openapiPath);
 }
 
 // Request logger middleware (only in development)
@@ -106,6 +110,10 @@ app.get('/health', (req, res) => {
     websocket: 'enabled',
     cors: 'enabled'
   });
+});
+
+app.get('/', (req, res) => {
+  res.redirect('/docs');
 });
 
 // API routes

@@ -377,13 +377,28 @@ exports.getBusesNearby = async (req, res) => {
 exports.getActiveLocations = async (req, res) => {
   try {
     // Get all active trips
-    const activeTrips = await Trip.find({ status: 'in_progress' }).distinct('bus');
+    const activeTrips = await Trip.find({ status: 'in_progress' })
+      .populate('bus', 'busNumber serviceType operator')
+      .populate('route', 'routeNumber name origin destination');
+
+    if (!activeTrips || activeTrips.length === 0) {
+      return res.status(200).json({
+        status: 'success',
+        results: 0,
+        data: {
+          locations: []
+        }
+      });
+    }
+
+    const busIds = activeTrips.map(trip => trip.bus._id);
 
     // Get latest location for each active bus
     const locations = await Location.aggregate([
       {
         $match: {
-          bus: { $in: activeTrips }
+          bus: { $in: busIds },
+          timestamp: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // Last 5 minutes
         }
       },
       {
@@ -395,26 +410,20 @@ exports.getActiveLocations = async (req, res) => {
           latestLocation: { $first: '$$ROOT' }
         }
       },
-      // FIX: Filter out null locations BEFORE replaceRoot
-      {
-        $match: {
-          latestLocation: { $ne: null }
-        }
-      },
       {
         $replaceRoot: { newRoot: '$latestLocation' }
       }
     ]);
 
     // Populate bus and trip details
-    await Location.populate(locations, [
+    const populatedLocations = await Location.populate(locations, [
       {
         path: 'bus',
-        select: 'busNumber serviceType operator'
+        select: 'busNumber serviceType operator registrationNumber'
       },
       {
         path: 'trip',
-        select: 'tripNumber route direction',
+        select: 'tripNumber route direction status',
         populate: {
           path: 'route',
           select: 'routeNumber name origin destination'
@@ -422,14 +431,30 @@ exports.getActiveLocations = async (req, res) => {
       }
     ]);
 
+    // Format response to match expected frontend structure
+    const formattedLocations = populatedLocations
+      .filter(loc => loc.bus && loc.trip) // Only include complete data
+      .map(loc => ({
+        bus: loc.bus,
+        location: {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          speed: loc.speed,
+          heading: loc.heading,
+          timestamp: loc.timestamp
+        },
+        trip: loc.trip
+      }));
+
     res.status(200).json({
       status: 'success',
-      results: locations.length,
+      results: formattedLocations.length,
       data: {
-        locations
+        locations: formattedLocations
       }
     });
   } catch (error) {
+    console.error('Error in getActiveLocations:', error);
     res.status(500).json({
       status: 'error',
       message: error.message
